@@ -3,3 +3,4 @@ export_clip_onnx.py
 generate_vectors.py
 build_vectors.py
 build_onnx.py
+avatar_manager.py
