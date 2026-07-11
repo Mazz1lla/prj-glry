@@ -1,3 +1,5 @@
 clip-text-onnx/
 export_clip_onnx.py
 generate_vectors.py
+build_vectors.py
+build_onnx.py

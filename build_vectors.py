@@ -1,50 +1,96 @@
+import os
 import json
 import numpy as np
-import onnxruntime
-from transformers import CLIPTokenizer
-import os
+import onnxruntime as ort
+from transformers import AutoTokenizer
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Используем те же ONNX + токенизатор, что и в app.py
-ORT_SESSION = onnxruntime.InferenceSession(
-    os.path.join(BASE_DIR, "clip-text-onnx", "model.onnx"),
-    providers=["CPUExecutionProvider"]
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
 )
-CLIP_MAX_LENGTH = 77
-TOKENIZER = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
-# Загружаем теги
-with open("avatars.json", "r", encoding="utf-8") as f:
+MODEL_DIR = os.path.join(
+    BASE_DIR,
+    "clip-text-onnx"
+)
+
+SESSION = ort.InferenceSession(
+    os.path.join(
+        MODEL_DIR,
+        "model.onnx"
+    ),
+    providers=[
+        "CPUExecutionProvider"
+    ]
+)
+
+TOKENIZER = AutoTokenizer.from_pretrained(
+    MODEL_DIR
+)
+
+MAX_LENGTH = 128
+
+with open(
+    "avatars.json",
+    "r",
+    encoding="utf-8"
+) as f:
     avatars = json.load(f)
 
 result = {}
+
 for filename, tags in avatars.items():
-    print(f"Processing: {filename} -> {tags[:50]}...")
+
+    if isinstance(tags, list):
+        text = ", ".join(tags)
+    else:
+        text = str(tags)
+
+    print(
+        f"Processing: {filename}"
+    )
 
     tokens = TOKENIZER(
-        tags,
+        text,
         padding="max_length",
-        max_length=CLIP_MAX_LENGTH,
         truncation=True,
+        max_length=MAX_LENGTH,
         return_tensors="np"
     )
 
-    input_ids = tokens["input_ids"].astype(np.int64)
-    attention_mask = tokens["attention_mask"].astype(np.int64)
+    embedding = SESSION.run(
+        None,
+        {
+            "input_ids":
+                tokens["input_ids"].astype(np.int64),
 
-    text_emb = ORT_SESSION.run(None, {
-        "input_ids": input_ids,
-        "attention_mask": attention_mask,
-    })[0]
+            "attention_mask":
+                tokens["attention_mask"].astype(np.int64),
+        }
+    )[0][0]
 
-    # Нормализация
-    norm = np.linalg.norm(text_emb, axis=-1, keepdims=True)
-    text_emb = text_emb / norm
+    embedding = embedding.astype(
+        np.float32
+    )
 
-    result[filename] = text_emb[0].tolist()
+    embedding /= (
+        np.linalg.norm(embedding)
+        + 1e-12
+    )
 
-with open("vectors.json", "w", encoding="utf-8") as f:
-    json.dump(result, f, ensure_ascii=False)
+    result[filename] = embedding.tolist()
 
-print(f"\n✅ vectors.json готов: {len(result)} записей")
+with open(
+    "vectors.json",
+    "w",
+    encoding="utf-8"
+) as f:
+    json.dump(
+        result,
+        f,
+        ensure_ascii=False
+    )
+
+print(
+    f"\n✅ vectors.json готов: "
+    f"{len(result)} записей"
+)
